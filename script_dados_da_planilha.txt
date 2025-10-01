@@ -1,0 +1,30 @@
+# =======================
+# 1. Instalação e carregamento de pacotes
+# =======================
+
+pacotes <- c("tidyverse", "readxl", "janitor")
+
+novos <- pacotes[!(pacotes %in% installed.packages()[,"Package"])]
+if(length(novos)) install.packages(novos, dependencies = TRUE)
+
+lapply(pacotes, library, character.only = TRUE)
+
+
+# =======================
+# 2. Ler e inspecionar a planilha
+# =======================
+
+# Caminho do arquivo
+arquivo <- "C:/Users/crist/Downloads/DADOS_SEDUC_2025/plataformas_base_mba_eca_usp.xlsx"
+
+# Primeiro, ver quais abas existem
+readxl::excel_sheets(arquivo)
+
+# Ler a primeira aba (ou substitua pelo nome correto)
+dados <- readxl::read_excel(arquivo, sheet = 1) |> janitor::clean_names()
+
+# Visualizar as primeiras linhas
+head(dados)
+
+# Mostrar todos os nomes de colunas disponíveis
+names(dados)

@@ -1,0 +1,102 @@
+# ===============================
+# Heatmap de volumes concluídos/realizados por DE × Plataforma
+# ===============================
+
+# Pacotes
+pkgs <- c("readxl","janitor","dplyr","tidyr","ggplot2","forcats","scales")
+new <- pkgs[!pkgs %in% rownames(installed.packages())]
+if (length(new)) install.packages(new, dependencies = TRUE)
+invisible(lapply(pkgs, library, character.only = TRUE))
+
+# Caminho do arquivo (ajuste se necessário)
+ARQ <- "C:/Users/crist/Downloads/DADOS_SEDUC_2025/plataformas_base_mba_eca_usp.xlsx"
+
+# Leitura e limpeza
+dados <- readxl::read_excel(ARQ, sheet = 1) |> janitor::clean_names()
+
+# Pasta de saída
+dir.create("saidas_graficos", showWarnings = FALSE)
+
+# ------------------------------------------------------------
+# 1) Escolha dos indicadores de VOLUME (somente realizados/concluídos)
+#    Edite livremente os rótulos à esquerda (aparecem no gráfico)
+# ------------------------------------------------------------
+indicadores <- c(
+  "Tarefas 2023 (realizadas)"          = "tarefas_realizadas_no_periodo2023",
+  "Tarefas 2024 (realizadas)"          = "tarefas_realizadas_no_periodo_2024",
+  "Redação 2023 (concluídas)"          = "redacoes_concluidas_2023",
+  "Redação 2024 (concluídas)"          = "redacoes_concluidas_2024",
+  "Matific 2023 (ativ. concluídas)"    = "matific_total_de_atividades_concluidas_2023",
+  "Matific 2024 (ativ. concluídas)"    = "matific_total_de_atividades_concluidas_2024",
+  "Speak 2024 (lições realizadas)"     = "total_de_licoes_realizadas_speak_2024",
+  "LEIA 2024 (questões realizadas)"    = "leia_2024_total_de_questoes_realizadas",
+  "Khan 2023 (questões realizadas)"    = "khan_2023_total_de_questoes_realizadas",
+  "Khan 2024 (questões realizadas)"    = "khan_2024_total_questoes_realizadas",
+  "Alura 2023 (exercícios)"            = "alura_2023_exercicios_realizados",
+  "Alura 2023 (cursos concl.)"         = "alura_2023_cursos_concluidos",
+  "Alura 2023 (projetos enviados)"     = "alura_2023_projetos_enviados",
+  "Alura 2024 (exercícios)"            = "alura_2024_exercicios_realizados",
+  "Alura 2024 (cursos concl.)"         = "alura_2024_cursos_concluidos",
+  "Alura 2024 (projetos enviados)"     = "alura_2024_projetos_enviados",
+  "Prepara 2023 (exercícios)"          = "prepara_2023_total_exercicios_realizados",
+  "Prepara 2023 (aulas assistidas)"    = "prepara_2023_total_de_aulas_assistidas",
+  "Prepara 2023 (simulados)"           = "prepara_2023_total_de_simulados_realizados",
+  "Me Salva 2024 (exercícios)"         = "me_salva_2024_total_exercicios_realizados",
+  "Me Salva 2024 (simulados)"          = "me_salva_2024_total_de_simulados_realizados"
+)
+
+# Mantém só o que existe na base
+indicadores <- indicadores[indicadores %in% names(dados)]
+labels_map  <- setNames(names(indicadores), indicadores)
+
+# ------------------------------------------------------------
+# 2) Tabela longa: diretorias × indicador (valor bruto)
+#    Ordenamos as DEs pela soma total (facilita leitura)
+# ------------------------------------------------------------
+df_long <- dados |>
+  dplyr::select(diretorias, dplyr::all_of(indicadores)) |>
+  tidyr::pivot_longer(-diretorias, names_to = "colname", values_to = "valor") |>
+  dplyr::mutate(
+    indicador = dplyr::recode(colname, !!!labels_map),
+    valor = suppressWarnings(as.numeric(valor))
+  ) |>
+  dplyr::select(diretorias, indicador, valor)
+
+ord_de <- df_long |>
+  dplyr::group_by(diretorias) |>
+  dplyr::summarise(total = sum(replace_na(valor, 0)), .groups = "drop") |>
+  dplyr::arrange(total)
+
+df_long <- df_long |>
+  dplyr::left_join(ord_de, by = "diretorias") |>
+  dplyr::mutate(diretorias = forcats::fct_reorder(diretorias, total)) |>
+  dplyr::select(-total)
+
+# Para escala log: zeros viram NA (aparecem clarinhos)
+df_long <- df_long |>
+  dplyr::mutate(valor_pos = ifelse(is.na(valor) | valor <= 0, NA_real_, valor))
+
+# ------------------------------------------------------------
+# 3) Heatmap (VOLUME, escala log) — DE (linhas) × Plataforma (colunas)
+# ------------------------------------------------------------
+g <- ggplot(df_long, aes(x = indicador, y = diretorias, fill = valor_pos)) +
+  geom_tile() +
+  scale_fill_gradientn(
+    colours = c("#f7fbff","#deebf7","#c6dbef","#6baed6","#2171b5","#08306b"),
+    trans   = "log10",
+    na.value = "grey95",
+    labels = scales::comma,
+    name = "Volume (escala log)"
+  ) +
+  labs(
+    title = "Volumes de atividades realizadas/concluídas por Diretoria × Plataforma",
+    subtitle = "Cor em escala logarítmica para acomodar diferenças de ordem de grandeza",
+    x = "Plataformas / Indicadores", y = "Diretorias"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 40, hjust = 1))
+
+ggsave("saidas_graficos/heatmap_volumes_concluidos.png",
+       g, width = 14, height = 16, dpi = 300)
+
+message("Heatmap salvo em: ", normalizePath("saidas_graficos/heatmap_volumes_concluidos.png"))

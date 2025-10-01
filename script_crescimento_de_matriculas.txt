@@ -1,0 +1,105 @@
+# =======================
+# Crescimento de matrículas por Diretoria (2023 → 2024)
+# =======================
+
+# Pacotes
+pkgs <- c("readxl","janitor","dplyr","tidyr","ggplot2","forcats","scales")
+new <- pkgs[!pkgs %in% rownames(installed.packages())]
+if(length(new)) install.packages(new, dependencies = TRUE)
+invisible(lapply(pkgs, library, character.only = TRUE))
+
+# Função auxiliar
+safe_div <- function(num, den) ifelse(is.na(den) | den == 0, NA_real_, num/den)
+
+# Caminho do arquivo
+ARQ <- "C:/Users/crist/Downloads/DADOS_SEDUC_2025/plataformas_base_mba_eca_usp.xlsx"
+
+# Ler base
+dados <- readxl::read_excel(ARQ, sheet = 1) |> janitor::clean_names()
+
+# Pasta de saída
+OUT <- normalizePath("saidas_graficos", mustWork = FALSE)
+dir.create(OUT, showWarnings = FALSE)
+
+# ---------------------------
+# 1) Tabela com crescimento
+# ---------------------------
+cres <- dados |>
+  transmute(
+    diretorias,
+    m2023 = as.numeric(matriculas_ativas_2023),
+    m2024 = as.numeric(matriculas_2024),
+    delta = m2024 - m2023,                      # crescimento absoluto
+    taxa  = safe_div(m2024, m2023) - 1          # crescimento relativo (%)
+  ) |>
+  arrange(delta) |>
+  mutate(diretorias = factor(diretorias, levels = diretorias),
+         sinal = ifelse(delta >= 0, "Aumento", "Queda"))
+
+# ---------------------------
+# 2) Gráfico principal: colunas do crescimento (Δ = 2024-2023)
+#     Ordenado do menor → maior
+# ---------------------------
+g_delta <- ggplot(cres, aes(x = diretorias, y = delta, fill = sinal)) +
+  geom_col() +
+  coord_flip() +
+  scale_y_continuous(labels = scales::comma) +
+  scale_fill_manual(values = c("Aumento" = "steelblue", "Queda" = "firebrick")) +
+  labs(
+    title = "Crescimento de Matrículas (2023 → 2024) por Diretoria",
+    subtitle = "Ordenado do menor para o maior (Δ = Matrículas 2024 − Matrículas 2023)",
+    x = "Diretorias de Ensino",
+    y = "Crescimento absoluto (alunos)",
+    fill = NULL
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "top")
+
+ggsave(file.path(OUT, "12_crescimento_matriculas_delta.png"),
+       g_delta, width = 10, height = max(6, 0.35 * nrow(cres)), dpi = 300)
+
+# ---------------------------
+# (Opcional) 3) Barras 2023 × 2024 ordenadas pelo crescimento
+# ---------------------------
+long <- cres |>
+  select(diretorias, m2023, m2024) |>
+  pivot_longer(cols = c(m2023, m2024), names_to = "ano", values_to = "matriculas") |>
+  mutate(ano = recode(ano, m2023 = "2023", m2024 = "2024"))
+
+g_pair <- ggplot(long, aes(x = diretorias, y = matriculas, fill = ano)) +
+  geom_col(position = position_dodge(width = 0.8)) +
+  coord_flip() +
+  scale_y_continuous(labels = scales::comma) +
+  scale_fill_manual(values = c("2023" = "grey60", "2024" = "steelblue")) +
+  labs(
+    title = "Matrículas 2023 × 2024 por Diretoria",
+    subtitle = "Diretorias ordenadas pelo crescimento absoluto (Δ 2024−2023)",
+    x = "Diretorias de Ensino", y = "Matrículas", fill = "Ano"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "top")
+
+ggsave(file.path(OUT, "12b_matriculas_2023_2024_ordenado_por_crescimento.png"),
+       g_pair, width = 10, height = max(6, 0.35 * nrow(cres)), dpi = 300)
+
+# ---------------------------
+# (Opcional) 4) Colunas por taxa (%) do menor → maior
+# ---------------------------
+g_taxa <- ggplot(cres |>
+                   arrange(taxa) |>
+                   mutate(diretorias = factor(diretorias, levels = diretorias)),
+                 aes(x = diretorias, y = taxa)) +
+  geom_col(fill = "darkorange") +
+  coord_flip() +
+  scale_y_continuous(labels = scales::percent) +
+  labs(
+    title = "Crescimento Relativo de Matrículas (2023 → 2024)",
+    subtitle = "Taxa = (2024 / 2023) − 1, do menor para o maior",
+    x = "Diretorias de Ensino", y = "Crescimento relativo"
+  ) +
+  theme_minimal(base_size = 12)
+
+ggsave(file.path(OUT, "12c_crescimento_matriculas_taxa.png"),
+       g_taxa, width = 10, height = max(6, 0.35 * nrow(cres)), dpi = 300)
+
+message("Gráficos salvos em: ", OUT)

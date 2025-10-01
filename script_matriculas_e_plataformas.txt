@@ -1,0 +1,387 @@
+# ==========================================================
+# ANALISE SEDUC — FIGURAS E ÍNDICES (versão para anexo do TCC)
+# Autoria: Cris Mathias (MBA ECA-USP)  |  Sem warnings/erros conhecidos
+# ==========================================================
+
+# ---------- 0) Pacotes ----------
+pkgs <- c("readxl","janitor","dplyr","tidyr","ggplot2","forcats","scales","Hmisc","openxlsx")
+new <- pkgs[!pkgs %in% rownames(installed.packages())]
+if (length(new)) install.packages(new, dependencies = TRUE)
+invisible(lapply(pkgs, library, character.only = TRUE))
+
+options(scipen = 999)  # evita notação científica em rótulos
+
+# ---------- 1) Leitura ----------
+ARQ <- "C:/Users/crist/Downloads/DADOS_SEDUC_2025/plataformas_base_mba_eca_usp.xlsx"
+dados <- readxl::read_excel(ARQ, sheet = 1) |> janitor::clean_names()
+
+# Pastas de saída
+OUTG <- normalizePath("saidas_graficos", mustWork = FALSE)
+OUTA <- normalizePath("saidas_analise",  mustWork = FALSE)
+dir.create(OUTG, showWarnings = FALSE)
+dir.create(OUTA, showWarnings = FALSE)
+
+# ---------- 2) Funções utilitárias ----------
+safe_div <- function(num, den) {
+  out <- ifelse(is.na(den) | den == 0, NA_real_, num/den); as.numeric(out)
+}
+
+plot_por_de <- function(df, cols, titulo, arquivo_png, id_col = "diretorias", nomes_amigaveis = NULL) {
+  stopifnot(id_col %in% names(df))
+  cols <- cols[cols %in% names(df)]
+  if (length(cols) < 2) stop("Forneça pelo menos 2 colunas de valor.")
+  nm_map <- if (is.null(nomes_amigaveis)) setNames(cols, cols) else nomes_amigaveis
+
+  df_long <- df |>
+    dplyr::select(all_of(id_col), all_of(cols)) |>
+    tidyr::pivot_longer(cols = all_of(cols), names_to = "variavel", values_to = "valor") |>
+    dplyr::mutate(variavel = dplyr::recode(variavel, !!!nm_map)) |>
+    dplyr::group_by(.data[[id_col]]) |>
+    dplyr::mutate(soma_de = sum(replace_na(as.numeric(valor), 0))) |>
+    dplyr::ungroup()
+
+  n_de <- dplyr::n_distinct(df_long[[id_col]])
+  h_in <- max(6, 0.35 * n_de)
+
+  g <- ggplot(df_long, aes(x = forcats::fct_reorder(.data[[id_col]], soma_de),
+                           y = valor, fill = variavel)) +
+    geom_col(position = position_dodge(width = 0.8)) +
+    coord_flip() +
+    scale_y_continuous(labels = scales::comma) +
+    labs(title = titulo, x = "Diretorias de Ensino", y = "Quantidade", fill = "Indicador") +
+    theme_minimal(base_size = 12) +
+    theme(legend.position = "top", panel.grid.minor = element_blank())
+
+  ggsave(file.path(OUTG, arquivo_png), g, width = 10, height = h_in, dpi = 300)
+  invisible(g)
+}
+
+# ---------- 3) Gráficos por DE (barras agrupadas) ----------
+# 3.1 Evolução de matrículas
+plot_por_de(
+  dados,
+  c("matriculas_ativas_2023","matriculas_2024"),
+  "Evolução de Matrículas por Diretoria (2023 → 2024)",
+  "01_evolucao_matriculas_2023_2024.png",
+  nomes_amigaveis = c(matriculas_ativas_2023="Matrículas 2023", matriculas_2024="Matrículas 2024")
+)
+
+# 3.2 Matrículas/inscrições por ecossistema
+plot_por_de(
+  dados,
+  c("matriculas_ativas_2023","matriculas_2024","matriculas_speak_2024",
+    "alura_2023_matriculas_ativas","prepara_2023_inscritos","me_salva_2024_inscritos"),
+  "Matrículas/Inscrições por Diretoria (plataformas)",
+  "02_matriculas_inscricoes_plataformas.png",
+  nomes_amigaveis = c(
+    matriculas_ativas_2023="Matrículas 2023",
+    matriculas_2024="Matrículas 2024",
+    matriculas_speak_2024="Speak 2024 (matr.)",
+    alura_2023_matriculas_ativas="Alura 2023 (matr.)",
+    prepara_2023_inscritos="Prepara 2023 (insc.)",
+    me_salva_2024_inscritos="Me Salva 2024 (insc.)"
+  )
+)
+
+# 3.3 Tarefas 2023
+plot_por_de(
+  dados,
+  c("tarefas_propostas_2023","tarefas_realizadas_no_periodo2023"),
+  "Tarefas 2023 por Diretoria (propostas × realizadas)",
+  "03_tarefas_2023.png",
+  nomes_amigaveis = c(tarefas_propostas_2023="Propostas 2023",
+                      tarefas_realizadas_no_periodo2023="Realizadas 2023")
+)
+
+# 3.4 Tarefas 2024
+plot_por_de(
+  dados,
+  c("tarefas_propostas_2024","tarefas_realizadas_no_periodo_2024"),
+  "Tarefas 2024 por Diretoria (propostas × realizadas)",
+  "04_tarefas_2024.png",
+  nomes_amigaveis = c(tarefas_propostas_2024="Propostas 2024",
+                      tarefas_realizadas_no_periodo_2024="Realizadas 2024")
+)
+
+# 3.5 Speak 2024
+plot_por_de(
+  dados,
+  c("matriculas_speak_2024","total_de_licoes_realizadas_speak_2024"),
+  "Speak 2024 por Diretoria (matrículas × lições)",
+  "05_speak_2024.png",
+  nomes_amigaveis = c(matriculas_speak_2024="Matrículas Speak 2024",
+                      total_de_licoes_realizadas_speak_2024="Lições realizadas 2024")
+)
+
+# 3.6 Redação Paulista 2023/2024
+plot_por_de(
+  dados,
+  c("redacoes_propostas_2023","redacoes_concluidas_2023",
+    "redacoes_propostas_2024","redacoes_concluidas_2024"),
+  "Redação Paulista por Diretoria (propostas × concluídas | 2023–2024)",
+  "06_redacao_2023_2024.png",
+  nomes_amigaveis = c(
+    redacoes_propostas_2023="Propostas 2023",
+    redacoes_concluidas_2023="Concluídas 2023",
+    redacoes_propostas_2024="Propostas 2024",
+    redacoes_concluidas_2024="Concluídas 2024"
+  )
+)
+
+# 3.7 Matific 2023/2024
+plot_por_de(
+  dados,
+  c("matific_atividades_iniciadas_2023","matific_total_de_atividades_concluidas_2023",
+    "matific_total_de_atividades_iniciadas_2024","matific_total_de_atividades_concluidas_2024"),
+  "Matific por Diretoria (iniciadas × concluídas | 2023–2024)",
+  "07_matific_2023_2024.png",
+  nomes_amigaveis = c(
+    matific_atividades_iniciadas_2023="Iniciadas 2023",
+    matific_total_de_atividades_concluidas_2023="Concluídas 2023",
+    matific_total_de_atividades_iniciadas_2024="Iniciadas 2024",
+    matific_total_de_atividades_concluidas_2024="Concluídas 2024"
+  )
+)
+
+# 3.8 Leia SP 2024
+plot_por_de(
+  dados,
+  c("leia_2024_no_de_livros_iniciados","leia_2024_no_de_livros_concluidos",
+    "leia_2024_total_de_questoes_realizadas","leia_2024_total_questoes_corretas"),
+  "LEIA 2024 por Diretoria (livros e questões)",
+  "08_leia_2024.png",
+  nomes_amigaveis = c(
+    leia_2024_no_de_livros_iniciados="Livros iniciados",
+    leia_2024_no_de_livros_concluidos="Livros concluídos",
+    leia_2024_total_de_questoes_realizadas="Questões realizadas",
+    leia_2024_total_questoes_corretas="Questões corretas"
+  )
+)
+
+# 3.9 Khan Academy 2023/2024 (atenção: mistura contagens e percentuais no mesmo eixo)
+plot_por_de(
+  dados,
+  c("khan_2023_total_de_questoes_realizadas","khan_2023_percent_acertos",
+    "khan_2024_total_questoes_realizadas","khan_2024_percent_acertos"),
+  "Khan Academy por Diretoria (questões & % acerto | 2023–2024)",
+  "09_khan_2023_2024.png",
+  nomes_amigaveis = c(
+    khan_2023_total_de_questoes_realizadas="Questões 2023",
+    khan_2023_percent_acertos="% acerto 2023",
+    khan_2024_total_questoes_realizadas="Questões 2024",
+    khan_2024_percent_acertos="% acerto 2024"
+  )
+)
+
+# 3.10 Alura 2023/2024
+plot_por_de(
+  dados,
+  c("alura_2023_matriculas_ativas","alura_2023_cursos_concluidos",
+    "alura_2023_projetos_enviados","alura_2023_exercicios_realizados",
+    "alura_2024_matriculas_ativas","alura_2024_cursos_concluidos",
+    "alura_2024_exercicios_realizados","alura_2024_projetos_enviados"),
+  "Alura por Diretoria (matrículas, cursos, projetos, exercícios | 2023–2024)",
+  "10_alura_2023_2024.png",
+  nomes_amigaveis = c(
+    alura_2023_matriculas_ativas="Matrículas 2023",
+    alura_2023_cursos_concluidos="Cursos 2023",
+    alura_2023_projetos_enviados="Projetos 2023",
+    alura_2023_exercicios_realizados="Exercícios 2023",
+    alura_2024_matriculas_ativas="Matrículas 2024",
+    alura_2024_cursos_concluidos="Cursos 2024",
+    alura_2024_exercicios_realizados="Exercícios 2024",
+    alura_2024_projetos_enviados="Projetos 2024"
+  )
+)
+
+# 3.11 Prepara + Me Salva
+plot_por_de(
+  dados,
+  c("prepara_2023_inscritos","prepara_2023_total_exercicios_realizados",
+    "prepara_2023_total_de_aulas_assistidas","prepara_2023_total_de_simulados_realizados",
+    "me_salva_2024_inscritos","me_salva_2024_total_exercicios_realizados",
+    "me_salva_2024_total_de_simulados_realizados"),
+  "Prepara 2023 + Me Salva 2024 por Diretoria",
+  "11_prepara_mesalva.png",
+  nomes_amigaveis = c(
+    prepara_2023_inscritos="Prepara (inscritos)",
+    prepara_2023_total_exercicios_realizados="Prepara (exercícios)",
+    prepara_2023_total_de_aulas_assistidas="Prepara (aulas)",
+    prepara_2023_total_de_simulados_realizados="Prepara (simulados)",
+    me_salva_2024_inscritos="Me Salva (inscritos)",
+    me_salva_2024_total_exercicios_realizados="Me Salva (exercícios)",
+    me_salva_2024_total_de_simulados_realizados="Me Salva (simulados)"
+  )
+)
+
+# ---------- 4) Construção de índices (USO e PROFICIÊNCIA) ----------
+dados <- dados |>
+  mutate(
+    # USO — razões/intensidades
+    uso_tarefas_2023 = safe_div(tarefas_realizadas_no_periodo2023, tarefas_propostas_2023),
+    uso_tarefas_2024 = safe_div(tarefas_realizadas_no_periodo_2024, tarefas_propostas_2024),
+    uso_redacao_2023 = safe_div(redacoes_concluidas_2023, redacoes_propostas_2023),
+    uso_redacao_2024 = safe_div(redacoes_concluidas_2024, redacoes_propostas_2024),
+    uso_matific_2023 = safe_div(matific_total_de_atividades_concluidas_2023, matific_atividades_iniciadas_2023),
+    uso_matific_2024 = safe_div(matific_total_de_atividades_concluidas_2024, matific_total_de_atividades_iniciadas_2024),
+    uso_speak_2024   = safe_div(total_de_licoes_realizadas_speak_2024, matriculas_speak_2024),
+    alura23_exs_por_mat  = safe_div(alura_2023_exercicios_realizados, alura_2023_matriculas_ativas),
+    alura24_exs_por_mat  = safe_div(alura_2024_exercicios_realizados, alura_2024_matriculas_ativas),
+    alura23_cursos_por_mat = safe_div(alura_2023_cursos_concluidos,  alura_2023_matriculas_ativas),
+    alura24_cursos_por_mat = safe_div(alura_2024_cursos_concluidos,  alura_2024_matriculas_ativas),
+    prepara23_exs_por_insc = safe_div(prepara_2023_total_exercicios_realizados, prepara_2023_inscritos),
+    prepara23_aulas_por_insc = safe_div(prepara_2023_total_de_aulas_assistidas, prepara_2023_inscritos),
+    prepara23_sim_por_insc = safe_div(prepara_2023_total_de_simulados_realizados, prepara_2023_inscritos),
+    mesalva24_exs_por_insc = safe_div(me_salva_2024_total_exercicios_realizados, me_salva_2024_inscritos),
+    mesalva24_sim_por_insc = safe_div(me_salva_2024_total_de_simulados_realizados, me_salva_2024_inscritos),
+
+    # PROFICIÊNCIA — proxies de acerto
+    leia_2024_taxa_acerto = safe_div(leia_2024_total_questoes_corretas, leia_2024_total_de_questoes_realizadas)
+  )
+
+uso_vars <- c(
+  "uso_tarefas_2023","uso_tarefas_2024",
+  "uso_redacao_2023","uso_redacao_2024",
+  "uso_matific_2023","uso_matific_2024",
+  "uso_speak_2024",
+  "alura23_exs_por_mat","alura24_exs_por_mat",
+  "alura23_cursos_por_mat","alura24_cursos_por_mat",
+  "prepara23_exs_por_insc","prepara23_aulas_por_insc","prepara23_sim_por_insc",
+  "mesalva24_exs_por_insc","mesalva24_sim_por_insc"
+)
+prof_vars <- intersect(c("leia_2024_taxa_acerto","khan_2023_percent_acertos","khan_2024_percent_acertos"), names(dados))
+
+dados <- dados |>
+  mutate(
+    across(all_of(uso_vars), as.numeric),
+    across(all_of(prof_vars), as.numeric),
+    uso_indice  = if (length(uso_vars)>0)  rowMeans(scale(across(all_of(uso_vars))), na.rm = TRUE) else NA_real_,
+    prof_indice = if (length(prof_vars)>0) rowMeans(scale(across(all_of(prof_vars))), na.rm = TRUE) else NA_real_
+  )
+
+openxlsx::write.xlsx(list(
+  "indices"      = dplyr::select(dados, diretorias, uso_indice, prof_indice, all_of(prof_vars)),
+  "metricas_uso" = dplyr::select(dados, diretorias, all_of(uso_vars))
+), file.path(OUTA, "00_indices_metricas.xlsx"), overwrite = TRUE)
+
+# ---------- 5) Correlação (tabela + heatmap simples) ----------
+corr_cols <- c("uso_indice","prof_indice", prof_vars, uso_vars)
+corr_df <- dados |> dplyr::select(any_of(corr_cols))
+
+if (ncol(corr_df) >= 2) {
+  rc <- Hmisc::rcorr(as.matrix(corr_df), type = "pearson")
+
+  # tabela tidy
+  corr_long <- tibble::tibble(
+    var1 = rep(rownames(rc$r), times = ncol(rc$r)),
+    var2 = rep(colnames(rc$r), each  = nrow(rc$r)),
+    r    = as.vector(rc$r),
+    p    = as.vector(rc$P)
+  ) |>
+    dplyr::filter(var1 < var2) |>
+    dplyr::mutate(sig = dplyr::case_when(
+      p < 0.001 ~ "***", p < 0.01 ~ "**", p < 0.05 ~ "*", TRUE ~ ""
+    ))
+  openxlsx::write.xlsx(corr_long, file.path(OUTA, "01_correlacoes.xlsx"), overwrite = TRUE)
+
+  # heatmap de correlações com ggplot2 (sem pacotes externos)
+  corr_mat <- rc$r
+  corr_mat[is.na(corr_mat)] <- 0
+  hm <- as.data.frame(as.table(corr_mat))
+  names(hm) <- c("var1","var2","r")
+
+  g_corr <- ggplot(hm, aes(x = var1, y = var2, fill = r)) +
+    geom_tile() +
+    scale_fill_gradient2(limits = c(-1,1), labels = scales::number_format(accuracy = 0.01)) +
+    coord_equal() +
+    theme_minimal(base_size = 10) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    labs(title = "Matriz de correlações (Pearson)", x = NULL, y = NULL, fill = "r")
+  ggsave(file.path(OUTA, "01_correlacoes_heatmap.png"), g_corr, width = 10, height = 8, dpi = 300)
+}
+
+# ---------- 6) Dispersão (Uso × Proficiência) — base R (robusto) ----------
+png(file.path(OUTA, "02_dispersao_uso_x_prof.png"), width = 1200, height = 800, res = 140)
+plot(dados$uso_indice, dados$prof_indice, pch = 19,
+     xlab = "Índice de Uso (z-score)", ylab = "Índice de Proficiência (z-score)")
+text(dados$uso_indice, dados$prof_indice, labels = dados$diretorias, pos = 3, cex = .7)
+abline(lm(prof_indice ~ uso_indice, data = dados), lwd = 2)
+dev.off()
+
+# Estatísticas para citar no texto
+ct <- suppressWarnings(cor.test(dados$uso_indice, dados$prof_indice, method = "pearson", use = "complete.obs"))
+m  <- lm(prof_indice ~ uso_indice, data = dados)
+openxlsx::write.xlsx(list(
+  "pearson" = data.frame(
+    r = unname(ct$estimate),
+    p_value = ct$p.value,
+    conf_low = ct$conf.int[1],
+    conf_high = ct$conf.int[2]
+  ),
+  "regressao" = broom::tidy(m),
+  "glance" = broom::glance(m)
+), file.path(OUTA, "02_dispersao_stats.xlsx"), overwrite = TRUE)
+
+# ---------- 7) Heatmap por DE (quartis dos índices) ----------
+res_long <- dados |>
+  dplyr::transmute(diretorias, `Índice de Uso` = uso_indice, `Índice de Proficiência` = prof_indice) |>
+  tidyr::pivot_longer(cols = c(`Índice de Uso`,`Índice de Proficiência`),
+                      names_to = "indicador", values_to = "valor") |>
+  dplyr::group_by(indicador) |>
+  dplyr::mutate(quartil = factor(dplyr::ntile(valor, 4), levels = 1:4,
+                                 labels = c("Q1 (baixo)","Q2","Q3","Q4 (alto)"))) |>
+  dplyr::ungroup()
+
+g_heat <- ggplot(res_long, aes(x = indicador, y = forcats::fct_reorder(diretorias, valor))) +
+  geom_tile(aes(fill = quartil)) +
+  geom_text(aes(label = round(valor, 2)), size = 3) +
+  scale_fill_brewer(type = "qual", palette = "Set2") +
+  labs(title = "Heatmap por Diretoria — Quartis dos Índices", x = "Indicador", y = "Diretorias", fill = "Quartil") +
+  theme_minimal(base_size = 12)
+ggsave(file.path(OUTA, "03_heatmap_quartis.png"), g_heat, width = 9, height = 12, dpi = 300)
+
+# ---------- 8) Clusters (k=3) + tabela alto-alto / alto-baixo / baixo-baixo ----------
+comp <- dados |> dplyr::select(uso_indice, prof_indice, diretorias) |> na.omit()
+if (nrow(comp) >= 3) {
+  set.seed(123)
+  km3 <- kmeans(scale(comp[, c("uso_indice","prof_indice")]), centers = 3, nstart = 50)
+
+  centros <- as.data.frame(km3$centers)
+  centros$cluster <- factor(1:3)
+  rotulo_cluster <- function(u, p) {
+    if (u >= 0 & p >= 0) return("alto-alto")
+    if (u >= 0 & p <  0) return("alto-baixo")
+    if (u <  0 & p <  0) return("baixo-baixo")
+    return("misto")
+  }
+  centros$rotulo <- mapply(rotulo_cluster, centros$uso_indice, centros$prof_indice)
+
+  comp$cluster_num <- factor(km3$cluster)
+  comp <- comp |>
+    dplyr::left_join(centros |> dplyr::select(cluster, rotulo), by = c("cluster_num" = "cluster")) |>
+    dplyr::rename(cluster_rotulo = rotulo)
+
+  tab_clusters <- comp |>
+    dplyr::count(cluster_rotulo, name = "n") |>
+    dplyr::mutate(pct = round(100*n/sum(n), 1)) |>
+    dplyr::arrange(dplyr::desc(n))
+
+  openxlsx::write.xlsx(list(
+    "centroides_z" = centros,
+    "clusters_resumo" = tab_clusters,
+    "base_com_cluster" = comp
+  ), file.path(OUTA, "04_clusters_k3.xlsx"), overwrite = TRUE)
+
+  # Gráfico de clusters (base R, alto contraste e estável)
+  png(file.path(OUTA, "04_clusters_k3_scatter.png"), width = 1200, height = 800, res = 140)
+  cols <- c("red","goldenrod","blue")[as.integer(comp$cluster_num)]
+  plot(comp$uso_indice, comp$prof_indice, pch = 19, col = cols,
+       xlab = "Índice de Uso (z-score)", ylab = "Índice de Proficiência (z-score)")
+  text(comp$uso_indice, comp$prof_indice, labels = comp$diretorias, pos = 3, cex = .7)
+  legend("topleft", legend = levels(comp$cluster_num), col = c("red","goldenrod","blue"), pch = 19, bty = "n",
+         title = "k = 3 (cores)")
+  dev.off()
+}
+
+# ---------- 9) Mensagem final ----------
+message("\nArquivos gerados em:\n - ", normalizePath(OUTG), "\n - ", normalizePath(OUTA))
